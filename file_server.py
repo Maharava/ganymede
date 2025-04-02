@@ -5,14 +5,18 @@ import os
 import random
 import string
 import socket
-from urllib.parse import parse_qs, urlparse
 import sys
 from io import BytesIO
-import re
 import json
 import base64
 import time
 import ssl
+import logging
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Import templates
+from templates import LOGIN_PAGE, UNAUTHORIZED_PAGE, WELCOME_OVERLAY_TEMPLATE
 
 # Configuration
 DEFAULT_CONFIG = {
@@ -27,128 +31,17 @@ DEFAULT_CONFIG = {
     "key_file": "certs/server.key"
 }
 
-# HTML Templates
-LOGIN_PAGE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Ganymede File Server - Login</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
-        .container { max-width: 500px; margin: 80px auto; padding: 30px; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); background-color: white; }
-        h2 { color: #2c3e50; margin-top: 0; }
-        input { padding: 12px; margin: 15px 0; width: 100%; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-        button { padding: 12px; background-color: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-size: 16px; }
-        button:hover { background-color: #2980b9; }
-        .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h2>Ganymede File Server</h2>
-        <p>Please enter your credentials to continue:</p>
-        <form id="loginForm">
-            <div class="form-group">
-                <label for="username">Username:</label>
-                <input type="text" id="username" name="username" placeholder="Enter username" required>
-            </div>
-            <div class="form-group">
-                <label for="token">Access Token:</label>
-                <input type="password" id="token" name="token" placeholder="Enter access token" required>
-            </div>
-            <button type="submit">Access Files</button>
-        </form>
-    </div>
-    <script>
-        document.getElementById('loginForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            var username = document.getElementById('username').value;
-            var token = document.getElementById('token').value;
-            
-            // Using fetch to set the cookie via a POST request
-            fetch('/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({username: username, token: token})
-            })
-            .then(response => {
-                if(response.ok) {
-                    window.location.href = '/';
-                } else {
-                    alert('Invalid credentials. Please try again.');
-                }
-            });
-        });
-    </script>
-</body>
-</html>
-"""
-
-UNAUTHORIZED_PAGE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Unauthorized</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
-        .container { max-width: 500px; margin: 80px auto; padding: 30px; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); background-color: white; }
-        .error { color: #e74c3c; }
-        a { color: #3498db; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h2 class="error">Unauthorized Access</h2>
-        <p>Invalid or missing authentication.</p>
-        <p><a href="/">Go back to login</a></p>
-    </div>
-</body>
-</html>
-"""
-
-WELCOME_OVERLAY_TEMPLATE = """
-<div id="welcome-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(255,255,255,0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 1000;">
-    <img src="data:image/png;base64,{image_data}" alt="Welcome" style="max-width: 80%; max-height: 70%;">
-    <h2 style="margin-top: 20px; color: #2c3e50;">Welcome to Ganymede File Server, {username}!</h2>
-</div>
-<script>
-    setTimeout(function() {
-        const overlay = document.getElementById('welcome-overlay');
-        overlay.style.transition = 'opacity 1s';
-        overlay.style.opacity = 0;
-        setTimeout(function() {
-            overlay.remove();
-        }, 1000);
-    }, 2000);
-</script>
-"""
-
-def get_local_ip():
-    """Get the local IP address of the machine."""
+def get_public_ip():
+    """Get the public-facing IP address of the machine."""
     try:
-        # Windows-specific method to get IP
-        import socket
-        hostname = socket.gethostname()
-        ip_addresses = socket.gethostbyname_ex(hostname)[2]
-        # Filter out loopback addresses
-        filtered_ips = [ip for ip in ip_addresses if not ip.startswith("127.")]
-        if filtered_ips:
-            return filtered_ips[0]
-        
-        # Fallback method
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(0.1)
-        s.connect(('8.8.8.8', 53))  # Google's DNS server
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception:
-        # Last resort
-        return '127.0.0.1'
+        # Try to get public IP from external service
+        import urllib.request
+        external_ip = urllib.request.urlopen('https://api.ipify.org').read().decode('utf8')
+        return external_ip
+    except Exception as e:
+        print(f"Warning: Could not determine public IP: {e}")
+        # Fall back to localhost
+        return "127.0.0.1"
 
 def generate_token(length=DEFAULT_CONFIG["token_length"]):
     """Generate a random token."""
@@ -168,6 +61,7 @@ def load_config():
         except Exception as e:
             print(f"Warning: Failed to load config file: {e}")
     
+    logging.debug(f"Loaded configuration: {config}")
     return config
 
 def get_welcome_image_data(config):
@@ -217,7 +111,7 @@ def setup_https(config):
 # Load configuration
 CONFIG = load_config()
 TOKEN_MAP = {}  # Will map usernames to tokens
-LOCAL_IP = get_local_ip()
+PUBLIC_IP = get_public_ip()
 WELCOME_IMAGE_DATA = get_welcome_image_data(CONFIG)
 CURRENT_USERS = {}  # Track active user sessions
 
@@ -332,6 +226,8 @@ class AuthenticatedHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 username = data.get('username', '')
                 token = data.get('token', '')
                 
+                logging.debug(f"Login attempt - Username: {username}, Configured users: {CONFIG['allowed_users']}, TOKEN_MAP: {TOKEN_MAP}")
+                
                 # Check if username exists and token matches
                 valid = False
                 
@@ -380,7 +276,8 @@ class AuthenticatedHTTPHandler(http.server.SimpleHTTPRequestHandler):
 
 def create_custom_https_server(address, port, handler, ssl_context):
     """Create an HTTPS server with the given handler and SSL context."""
-    httpd = socketserver.ThreadingTCPServer((address, port), handler)
+    # Change from "" to "0.0.0.0" to explicitly bind to all network interfaces
+    httpd = socketserver.ThreadingTCPServer(("0.0.0.0", port), handler)
     httpd.socket = ssl_context.wrap_socket(httpd.socket, server_side=True)
     return httpd
 
@@ -397,6 +294,8 @@ def run_server(port=CONFIG['port'], directory=CONFIG['directory'], token=None, u
     elif CONFIG['allowed_users']:
         # Use the configured users
         print("Using configured users from config.json")
+        # Add this line to copy configured users to TOKEN_MAP
+        TOKEN_MAP.update(CONFIG['allowed_users'])
     else:
         # If no authentication specified, create a default admin user
         default_username = "admin"
@@ -423,12 +322,12 @@ def run_server(port=CONFIG['port'], directory=CONFIG['directory'], token=None, u
     try:
         # Create and start the server
         if ssl_context:
-            httpd = create_custom_https_server("", port, handler, ssl_context)
+            httpd = create_custom_https_server("0.0.0.0", port, handler, ssl_context)
         else:
-            httpd = socketserver.ThreadingTCPServer(("", port), handler)
+            httpd = socketserver.ThreadingTCPServer(("0.0.0.0", port), handler)
         
         print(f"\n=== Ganymede File Sharing Server ===")
-        print(f"Server started at {protocol.lower()}://{LOCAL_IP}:{port}/")
+        print(f"Server started at {protocol.lower()}://{PUBLIC_IP}:{port}/")
         
         if TOKEN_MAP:
             print("\nAuthentication credentials:")
@@ -438,7 +337,7 @@ def run_server(port=CONFIG['port'], directory=CONFIG['directory'], token=None, u
                 print()
         
         print(f"Serving files from: {os.path.abspath(directory)}")
-        print(f"Share this URL with others: {protocol.lower()}://{LOCAL_IP}:{port}/")
+        print(f"Share this URL with others: {protocol.lower()}://{PUBLIC_IP}:{port}/")
         print("They will need to enter valid credentials to access files.")
         print("Press Ctrl+C to stop the server.\n")
         

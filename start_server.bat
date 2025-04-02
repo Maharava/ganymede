@@ -102,9 +102,15 @@ if defined USERNAME set "CMD=!CMD! --username %USERNAME%"
 
 REM Start the server
 echo Starting file sharing server...
-for /f "tokens=*" %%i in ('powershell -command "(Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias Ethernet,Wi-Fi | Where-Object {$_.IPAddress -notmatch '^169'} | Select-Object -First 1 IPAddress).IPAddress"') do set IP=%%i
-if not defined IP set IP=127.0.0.1
-echo Access via https://%IP%:%PORT%/
+echo.
+echo The server will automatically detect your public IP address.
+echo This IP address will be displayed when the server starts.
+echo.
+echo IMPORTANT: For external access over the internet:
+echo  1. Make sure port %PORT% is forwarded in your router to this computer
+echo  2. Check that your firewall allows incoming connections on port %PORT%
+echo  3. If your ISP uses dynamic IP addressing, consider using a Dynamic DNS service
+echo.
 %CMD%
 exit /b
 
