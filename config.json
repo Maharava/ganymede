@@ -1,0 +1,14 @@
+{
+    "port": 8000,
+    "token_length": 8,
+    "directory": "",
+    "cookie_name": "ganymede_auth",
+    "welcome_image": "assets/welcome.png",
+    "allowed_users": {
+        "karo": "orassi",
+        "guest": "guest_access"
+    },
+    "use_https": false,
+    "cert_file": "certs/server.crt",
+    "key_file": "certs/server.key"
+}
