@@ -69,7 +69,8 @@ Example config.json:
  "use_https": true,
  "cert_file": "certs/server.crt",
  "key_file": "certs/server.key"
-}```
+}
+```
 
 Internet Sharing
 Ganymede automatically detects your public IP address to facilitate sharing files over the internet. To enable external access:

@@ -82,7 +82,7 @@ def get_welcome_image_data(config):
 
 def setup_https(config):
     """Ensure HTTPS certificates are available."""
-    if not config.get('use_https', True):
+    if not config.get('use_https', False):
         return None
     
     cert_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), config['cert_file'])
@@ -104,8 +104,9 @@ def setup_https(config):
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(certfile=cert_path, keyfile=key_path)
         return context
-    except Exception as e:
-        print(f"Warning: Failed to setup HTTPS: {e}. Falling back to HTTP.")
+    except (ssl.SSLError, FileNotFoundError) as e:
+        print(f"Warning: HTTPS setup failed with error: {e}")
+        print("Falling back to HTTP.")
         return None
 
 # Load configuration
@@ -247,7 +248,7 @@ class AuthenticatedHTTPHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_header('Content-type', 'text/plain')
                     cookie_value = f"{username}:{token}"
                     cookie = f"{CONFIG['cookie_name']}={cookie_value}; Path=/; HttpOnly"
-                    if CONFIG.get('use_https', True):
+                    if CONFIG.get('use_https', False):
                         cookie += "; Secure; SameSite=Strict"
                     self.send_header('Set-Cookie', cookie)
                     self.end_headers()
@@ -316,7 +317,7 @@ def run_server(port=CONFIG['port'], directory=CONFIG['directory'], token=None, u
     handler = lambda *args, **kwargs: AuthenticatedHTTPHandler(*args, directory=directory, **kwargs)
     
     # Setup HTTPS if enabled
-    ssl_context = setup_https(CONFIG) if CONFIG.get('use_https', True) else None
+    ssl_context = setup_https(CONFIG) if CONFIG.get('use_https', False) else None
     protocol = "HTTPS" if ssl_context else "HTTP"
     
     try:
@@ -346,6 +347,10 @@ def run_server(port=CONFIG['port'], directory=CONFIG['directory'], token=None, u
         print("\nServer stopped.")
     except Exception as e:
         print(f"Error: {str(e)}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error starting server: {str(e)}")
+        logging.critical(f"Server failed to start: {e}", exc_info=True)
         sys.exit(1)
 
 if __name__ == "__main__":
