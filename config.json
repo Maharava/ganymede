@@ -8,7 +8,5 @@
         "karo": "orassi",
         "guest": "guest_access"
     },
-    "use_https": false,
-    "cert_file": "certs/server.crt",
-    "key_file": "certs/server.key"
+    "use_https": false
 }

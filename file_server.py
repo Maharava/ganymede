@@ -10,10 +10,9 @@ from io import BytesIO
 import json
 import base64
 import time
-import ssl
 import logging
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Import templates
 from templates import LOGIN_PAGE, UNAUTHORIZED_PAGE, WELCOME_OVERLAY_TEMPLATE
@@ -26,9 +25,7 @@ DEFAULT_CONFIG = {
     "cookie_name": "ganymede_auth",
     "welcome_image": "assets/welcome.png",
     "allowed_users": {},
-    "use_https": True,
-    "cert_file": "certs/server.crt",
-    "key_file": "certs/server.key"
+    "use_https": False  # Default to HTTP
 }
 
 def get_public_ip():
@@ -61,6 +58,9 @@ def load_config():
         except Exception as e:
             print(f"Warning: Failed to load config file: {e}")
     
+    # Force use_https to False for this HTTP-only version
+    config["use_https"] = False
+    
     logging.debug(f"Loaded configuration: {config}")
     return config
 
@@ -80,35 +80,6 @@ def get_welcome_image_data(config):
         print(f"Warning: Failed to load welcome image: {e}")
         return ""
 
-def setup_https(config):
-    """Ensure HTTPS certificates are available."""
-    if not config.get('use_https', False):
-        return None
-    
-    cert_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), config['cert_file'])
-    key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), config['key_file'])
-    
-    if not os.path.exists(cert_path) or not os.path.exists(key_path):
-        print("HTTPS certificates not found. Generating self-signed certificates...")
-        try:
-            import generate_cert
-            if not generate_cert.generate_self_signed_cert():
-                print("Warning: Failed to generate HTTPS certificates. Falling back to HTTP.")
-                return None
-        except ImportError:
-            print("Warning: Certificate generation module not found. Falling back to HTTP.")
-            return None
-    
-    # Create SSL context
-    try:
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        context.load_cert_chain(certfile=cert_path, keyfile=key_path)
-        return context
-    except (ssl.SSLError, FileNotFoundError) as e:
-        print(f"Warning: HTTPS setup failed with error: {e}")
-        print("Falling back to HTTP.")
-        return None
-
 # Load configuration
 CONFIG = load_config()
 TOKEN_MAP = {}  # Will map usernames to tokens
@@ -123,6 +94,7 @@ class AuthenticatedHTTPHandler(http.server.SimpleHTTPRequestHandler):
         """Check if the request includes a valid authentication cookie."""
         cookie_header = self.headers.get('Cookie', '')
         if not cookie_header:
+            logging.debug(f"No cookies found in request from {self.client_address[0]}")
             return False, None
             
         cookies = {}
@@ -133,14 +105,17 @@ class AuthenticatedHTTPHandler(http.server.SimpleHTTPRequestHandler):
         
         auth_cookie = cookies.get(CONFIG['cookie_name'])
         if not auth_cookie or ':' not in auth_cookie:
+            logging.debug(f"No valid auth cookie found. Cookies: {cookies}")
             return False, None
             
         username, token = auth_cookie.split(':', 1)
         
         # Check if this is a valid user session
         if username in TOKEN_MAP and TOKEN_MAP[username] == token:
+            logging.debug(f"Valid authentication for {username} from {self.client_address[0]}")
             return True, username
         
+        logging.debug(f"Invalid token for {username} from {self.client_address[0]}")
         return False, None
     
     def do_GET(self):
@@ -227,29 +202,33 @@ class AuthenticatedHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 username = data.get('username', '')
                 token = data.get('token', '')
                 
-                logging.debug(f"Login attempt - Username: {username}, Configured users: {CONFIG['allowed_users']}, TOKEN_MAP: {TOKEN_MAP}")
+                logging.info(f"Login attempt from {self.client_address[0]} - Username: {username}")
+                logging.debug(f"TOKEN_MAP: {TOKEN_MAP}")
+                logging.debug(f"Configured users: {CONFIG['allowed_users']}")
                 
                 # Check if username exists and token matches
                 valid = False
                 
                 # First check if this is a command-line specified user
                 if username in TOKEN_MAP and TOKEN_MAP[username] == token:
+                    logging.info(f"Authentication successful for {username} via TOKEN_MAP")
                     valid = True
                 
                 # Then check against allowed_users in config
                 elif username in CONFIG['allowed_users'] and CONFIG['allowed_users'][username] == token:
                     # Add to token map for future validation
                     TOKEN_MAP[username] = token
+                    logging.info(f"Authentication successful for {username} via config")
                     valid = True
+                else:
+                    logging.info(f"Authentication failed for {username}. Invalid credentials.")
                 
                 if valid:
-                    # Authentication successful, set cookie with secure attributes
+                    # Authentication successful, set cookie (HTTP-only version without Secure flag)
                     self.send_response(200)
                     self.send_header('Content-type', 'text/plain')
                     cookie_value = f"{username}:{token}"
-                    cookie = f"{CONFIG['cookie_name']}={cookie_value}; Path=/; HttpOnly"
-                    if CONFIG.get('use_https', False):
-                        cookie += "; Secure; SameSite=Strict"
+                    cookie = f"{CONFIG['cookie_name']}={cookie_value}; Path=/; HttpOnly; SameSite=Lax"
                     self.send_header('Set-Cookie', cookie)
                     self.end_headers()
                     self.wfile.write(b'Authentication successful')
@@ -261,7 +240,7 @@ class AuthenticatedHTTPHandler(http.server.SimpleHTTPRequestHandler):
                     }
                     return
             except Exception as e:
-                print(f"Error processing login: {e}")
+                logging.error(f"Error processing login: {e}", exc_info=True)
                 
             # Authentication failed
             self.send_response(401)
@@ -274,13 +253,6 @@ class AuthenticatedHTTPHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-type', 'text/plain')
             self.end_headers()
             self.wfile.write(b'POST requests are not allowed on this server except for authentication.')
-
-def create_custom_https_server(address, port, handler, ssl_context):
-    """Create an HTTPS server with the given handler and SSL context."""
-    # Change from "" to "0.0.0.0" to explicitly bind to all network interfaces
-    httpd = socketserver.ThreadingTCPServer(("0.0.0.0", port), handler)
-    httpd.socket = ssl_context.wrap_socket(httpd.socket, server_side=True)
-    return httpd
 
 def run_server(port=CONFIG['port'], directory=CONFIG['directory'], token=None, username=None):
     """Run the HTTP file server."""
@@ -295,7 +267,7 @@ def run_server(port=CONFIG['port'], directory=CONFIG['directory'], token=None, u
     elif CONFIG['allowed_users']:
         # Use the configured users
         print("Using configured users from config.json")
-        # Add this line to copy configured users to TOKEN_MAP
+        # Add configured users to TOKEN_MAP
         TOKEN_MAP.update(CONFIG['allowed_users'])
     else:
         # If no authentication specified, create a default admin user
@@ -310,25 +282,15 @@ def run_server(port=CONFIG['port'], directory=CONFIG['directory'], token=None, u
     assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets')
     os.makedirs(assets_dir, exist_ok=True)
     
-    certs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'certs')
-    os.makedirs(certs_dir, exist_ok=True)
-    
     # Set the directory to serve files from
     handler = lambda *args, **kwargs: AuthenticatedHTTPHandler(*args, directory=directory, **kwargs)
     
-    # Setup HTTPS if enabled
-    ssl_context = setup_https(CONFIG) if CONFIG.get('use_https', False) else None
-    protocol = "HTTPS" if ssl_context else "HTTP"
-    
     try:
         # Create and start the server
-        if ssl_context:
-            httpd = create_custom_https_server("0.0.0.0", port, handler, ssl_context)
-        else:
-            httpd = socketserver.ThreadingTCPServer(("0.0.0.0", port), handler)
+        httpd = socketserver.ThreadingTCPServer(("0.0.0.0", port), handler)
         
-        print(f"\n=== Ganymede File Sharing Server ===")
-        print(f"Server started at {protocol.lower()}://{PUBLIC_IP}:{port}/")
+        print(f"\n=== Ganymede File Sharing Server (HTTP) ===")
+        print(f"Server started on port {port}")
         
         if TOKEN_MAP:
             print("\nAuthentication credentials:")
@@ -338,8 +300,8 @@ def run_server(port=CONFIG['port'], directory=CONFIG['directory'], token=None, u
                 print()
         
         print(f"Serving files from: {os.path.abspath(directory)}")
-        print(f"Share this URL with others: {protocol.lower()}://{PUBLIC_IP}:{port}/")
-        print("They will need to enter valid credentials to access files.")
+        print(f"Local access URL: http://localhost:{port}/")
+        print(f"Network access URL: http://{PUBLIC_IP}:{port}/")
         print("Press Ctrl+C to stop the server.\n")
         
         httpd.serve_forever()
@@ -347,10 +309,6 @@ def run_server(port=CONFIG['port'], directory=CONFIG['directory'], token=None, u
         print("\nServer stopped.")
     except Exception as e:
         print(f"Error: {str(e)}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error starting server: {str(e)}")
-        logging.critical(f"Server failed to start: {e}", exc_info=True)
         sys.exit(1)
 
 if __name__ == "__main__":

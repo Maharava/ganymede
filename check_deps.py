@@ -25,10 +25,9 @@ def check_install_package(package, package_import=None):
 
 def main():
     """Check and install required dependencies."""
+    # HTTP-only version only needs pillow for welcome image
     required_packages = [
-        ("pillow", "PIL"),
-        ("pyopenssl", "OpenSSL"),
-        ("cryptography", "cryptography")
+        ("pillow", "PIL")
     ]
     
     all_installed = True
@@ -38,13 +37,13 @@ def main():
     
     if not all_installed:
         print("\nSome dependencies failed to install. Please install them manually:")
-        print("pip install pillow pyopenssl cryptography")
+        print("pip install pillow")
         sys.exit(1)
     
     # Create requirements.txt if it doesn't exist
     try:
         with open("requirements.txt", "w") as f:
-            f.write("pillow\npyopenssl\ncryptography\n")
+            f.write("pillow\n")
     except Exception as e:
         print(f"Warning: Could not create requirements.txt: {e}")
     
