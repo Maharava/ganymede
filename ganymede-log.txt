@@ -1,0 +1,24 @@
+Starting Ganymede File Server... 
+Timestamp: Fri 04/04/2025 14:32:26.37 
+Checking for Node.js... 
+C:\Program Files\nodejs\node.exe
+Checking for ganymede.js... 
+Installing dependencies... 
+
+up to date, audited 95 packages in 1s
+
+17 packages are looking for funding
+  run `npm fund` for details
+
+2 high severity vulnerabilities
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+Starting server... 
+Current directory: C:\Users\rford\Desktop\AI\ganymede-1 
+Node version: 
+v22.14.0
+NPM version: 
+10.9.2

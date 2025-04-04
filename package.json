@@ -1,0 +1,12 @@
+{
+    "name": "ganymede-file-server",
+    "version": "1.0.0",
+    "description": "Simple local file sharing server with internet access",
+    "main": "ganymede.js",
+    "dependencies": {
+        "dotenv": "^16.4.7",
+        "express": "^4.18.2",
+        "express-basic-auth": "^1.2.1",
+        "localtunnel": "^2.0.2"
+    }
+}

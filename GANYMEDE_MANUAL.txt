@@ -1,0 +1,129 @@
+=====================================================
+GANYMEDE FILE SERVER - HOST INSTALLATION MANUAL
+=====================================================
+
+OVERVIEW
+--------
+Ganymede is a simple file sharing server that allows you to share files from
+your computer with others over the internet. It creates a secure, password-
+protected website that others can access to download files you place in a
+specific folder.
+
+PREREQUISITES
+------------
+1. Node.js (v14 or newer) - Download from https://nodejs.org/
+2. A computer that can remain powered on while sharing files
+3. Basic knowledge of command line/terminal usage
+
+INSTALLATION
+-----------
+1. Open a command prompt/terminal and navigate to the folder where you want 
+to install Ganymede.
+
+2. Clone the Ganymede repository from GitHub:
+    git clone https://github.com/maharava/ganymede.git
+
+3. Navigate into the cloned repository:
+    cd ganymede
+
+3. Open a command prompt/terminal in this folder and run:
+   npm install
+
+   This will install all required dependencies.
+
+CONFIGURATION
+------------
+Create or edit the .env file with a text editor and configure:
+
+1. PORT (optional, default is 3000):
+   PORT=3000
+
+2. USER CREDENTIALS (username:password format, comma-separated):
+   USER_CREDENTIALS=username1:password1,username2:password2
+
+   Example:
+   USER_CREDENTIALS=jimminy:cricket,boob:mcboobs
+
+3. GREETING MESSAGES (optional):
+   GREETING_HEADER=Hi, {username}! I'm Ganymede
+   GREETING_SUBHEADER=Want some of my files? Yeah you do:
+   GREETING_EMPTY=I got nothing! Tell whoever owns me to put files in the "shared_files" directory.
+
+   Note: {username} will be replaced with the logged-in user's name.
+
+CUSTOMIZING THE APPEARANCE
+-------------------------
+1. The "assets" folder is included in the Ganymede repository and contains 
+default assets.
+
+2. To customize the appearance, replace the following files in the "assets" 
+folder:
+    - Background images (1920x1080px recommended):
+      - For all users: assets/background.png
+      - For specific users: assets/background_username.png
+         (Example: assets/background_jiminy.png for user "jiminy")
+
+    - Favicon (optional):
+      - assets/ganymede.ico
+
+SHARING FILES
+------------
+1. Open the "shared_files" folder in your Ganymede directory:
+
+2. Place any files you want to share in this folder.
+   - These will be available to anyone with login credentials
+   - There are no folder hierarchies - all files must be in this root folder
+
+RUNNING THE SERVER
+-----------------
+1. On Windows: Double-click start-ganymede.bat
+   On Mac/Linux: Run "node ganymede.js" in terminal
+
+2. The server will display:
+   - Your local address (http://localhost:3000)
+   - Your public IP address
+   - A tunnel URL (https://something.loca.lt)
+
+3. IMPORTANT: The tunnel URL is how others will access your files.
+   Make note of this URL to share with your users.
+
+SHARING ACCESS WITH USERS
+------------------------
+To allow users to access your file server:
+
+1. Share with them:
+   - The tunnel URL (displayed when you start the server)
+   - Their username and password (that you configured in .env)
+   - Your public IP address (they'll need this as a tunnel password)
+
+2. When they access the URL, they will:
+   - First be prompted for the tunnel password (your public IP)
+   - Then be prompted for their Ganymede username/password
+
+SECURITY NOTE
+------------
+- Anyone with the tunnel URL, your public IP, and valid credentials can 
+access your shared files
+- Only share credentials with people you trust
+- The server is only active while running on your computer
+- Files are served directly from your computer's storage
+- It's recommended to close Ganymede when not in use
+
+TROUBLESHOOTING
+--------------
+1. "Cannot find module" errors:
+   - Run "npm install" again in the Ganymede directory
+
+2. "Address already in use" errors:
+   - Change the PORT in your .env file
+   - Make sure no other services are using that port
+
+3. Tunnel connection issues:
+   - Restart the server
+   - Check your internet connection
+   - Your firewall might be blocking the connection
+
+4. Files not visible:
+   - Make sure they're in the "shared_files" directory
+   - Reload the page
+   - File names with special characters might cause issues
