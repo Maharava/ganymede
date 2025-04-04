@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple File Sharing</title>
+    <link rel="shortcut icon" href="/assets/ganymede.ico" type="image/x-icon">
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 20px;
+            <% if (backgroundImage) { %>
+            background-image: url('<%= backgroundImage %>');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            <% } else { %>
+            background-color: white;
+            <% } %>
+            position: relative;
+            transition: background-image 0.3s ease;
+        }
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.85); /* White overlay with 85% opacity */
+            z-index: -1;
+        }
+        h1 { color: #333; }
+        ul { list-style-type: none; padding: 0; }
+        li { 
+            margin: 10px 0; 
+            padding: 10px; 
+            border-radius: 5px; 
+            background-color: rgba(245, 245, 245, 0.8); /* Semi-transparent background */
+        }
+        a { color: #0066cc; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .empty { color: #666; font-style: italic; }
+        .content {
+            position: relative;
+            z-index: 1;
+        }
+        .file-item {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .file-type {
+            background-color: #eaeaea;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-right: 10px;
+            font-size: 12px;
+            min-width: 80px;
+            text-align: center;
+        }
+        .file-size {
+            color: #666;
+            margin-left: 5px;
+        }
+        /* Colored tags for different file types */
+        .pdf { background-color: #f7dada; }
+        .doc, .docx { background-color: #dae9f7; }
+        .jpg, .jpeg, .png, .gif { background-color: #e3f7da; }
+        .mp3, .wav { background-color: #f7f3da; }
+        .mp4, .mov { background-color: #f7daec; }
+        .zip, .rar { background-color: #daf7f5; }
+        
+        /* Thumbnail preview styles */
+        .thumbnail {
+            max-width: 50px;
+            max-height: 50px;
+            margin-right: 10px;
+            border-radius: 3px;
+            vertical-align: middle;
+            border: 1px solid #ddd;
+            object-fit: cover;
+        }
+        
+        /* Background toggle button */
+        #bg-toggle {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.7);
+            border: 1px solid #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 18px;
+            z-index: 100;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        #bg-toggle:hover {
+            background-color: rgba(255, 255, 255, 0.9);
+        }
+    </style>
+</head>
+<body>
+    <% if (userBackgroundImage) { %>
+    <button id="bg-toggle" title="Switch to personal background">👤</button>
+    <% } %>
+    <div class="content">
+        <h1><%= greetingHeader %></h1>
+        <p><%= greetingSubheader %></p>
+        <% if (files.length) { %>
+            <%- fileList %>
+        <% } else { %>
+            <p class="empty"><%= greetingEmpty %></p>
+        <% } %>
+    </div>
+    
+    <script>
+        // Background toggle functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const bgToggle = document.getElementById('bg-toggle');
+            if (bgToggle) {
+                const defaultBg = '<%= backgroundImage || "" %>';
+                const userBg = '<%= userBackgroundImage || "" %>';
+                const bgBasename = '<%= backgroundBasename || "" %>';
+                
+                bgToggle.addEventListener('click', function() {
+                    const body = document.body;
+                    // Check if we're currently using the default background
+                    if (body.style.backgroundImage.includes(bgBasename)) {
+                        // Switch to user background
+                        body.style.backgroundImage = 'url("' + userBg + '")';
+                        bgToggle.innerHTML = '🏠';
+                        bgToggle.title = 'Switch to default background';
+                    } else {
+                        // Switch to default background
+                        body.style.backgroundImage = 'url("' + defaultBg + '")';
+                        bgToggle.innerHTML = '👤';
+                        bgToggle.title = 'Switch to personal background';
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>

@@ -9,6 +9,10 @@ require('dotenv').config(); // Add dotenv support
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Set up EJS as the view engine
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
 // Function to get public IP address
 function getPublicIP() {
     return new Promise((resolve, reject) => {
@@ -87,17 +91,22 @@ app.get('/', (req, res) => {
         console.error(`Error creating assets directory: ${err.message}`);
     }
 
-    // Inside your route handler, use this for background detection with multiple fallbacks
+    // Inside your route handler, modify the background detection code
     const userBgPath = path.join(__dirname, 'assets', `background_${currentUser}.png`);
     const defaultBgPath = path.join(__dirname, 'assets', 'background.png');
     let backgroundImage = null;
+    let userBackgroundImage = null;
+    let backgroundBasename = '';
 
-    if (fs.existsSync(userBgPath)) {
-        // User-specific background exists
-        backgroundImage = `/assets/background_${currentUser}.png`;
-    } else if (fs.existsSync(defaultBgPath)) {
-        // Default background exists
+    // Always use default background as initial background if it exists
+    if (fs.existsSync(defaultBgPath)) {
         backgroundImage = '/assets/background.png';
+        backgroundBasename = 'background.png';
+    }
+
+    // Check if user has a custom background (but don't set it initially)
+    if (fs.existsSync(userBgPath)) {
+        userBackgroundImage = `/assets/background_${currentUser}.png`;
     }
 
     // Create the directory if it doesn't exist
@@ -126,7 +135,22 @@ app.get('/', (req, res) => {
                     const fileSize = (stats.size / 1024).toFixed(2) + ' KB';
                     const fileType = getFileType(file);
                     const ext = path.extname(file).toLowerCase();
-                    fileList += `<li class="file-item"><span class="file-type ${ext.substring(1) || 'generic'}">${fileType}</span><a href="/download/${file}">${file}</a> <span class="file-size">(${fileSize})</span></li>`;
+                    
+                    // Check if the file is an image
+                    const isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(ext);
+                    let previewHtml = '';
+                    
+                    // Add image preview for image files
+                    if (isImage) {
+                        previewHtml = `<img class="thumbnail" src="/preview/${file}" alt="${file}" />`;
+                    }
+                    
+                    fileList += `<li class="file-item">
+                        <span class="file-type ${ext.substring(1) || 'generic'}">${fileType}</span>
+                        ${previewHtml}
+                        <a href="/download/${file}">${file}</a>
+                        <span class="file-size">(${fileSize})</span>
+                    </li>`;
                 }
             } catch (err) {
                 console.error(`Error processing file ${file}: ${err.message}`);
@@ -142,87 +166,17 @@ app.get('/', (req, res) => {
         // Replace {username} placeholder with actual username
         greetingHeader = greetingHeader.replace('{username}', currentUser);
         
-        const html = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Simple File Sharing</title>
-            <link rel="shortcut icon" href="/assets/ganymede.ico" type="image/x-icon">
-            <style>
-                body { 
-                    font-family: Arial, sans-serif; 
-                    max-width: 800px; 
-                    margin: 0 auto; 
-                    padding: 20px;
-                    ${backgroundImage ? `background-image: url('${backgroundImage}');
-                    background-size: cover;
-                    background-position: center;
-                    background-attachment: fixed;` : 'background-color: white;'}
-                    position: relative;
-                }
-                body::before {
-                    content: "";
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    background-color: rgba(255, 255, 255, 0.85); /* White overlay with 85% opacity */
-                    z-index: -1;
-                }
-                h1 { color: #333; }
-                ul { list-style-type: none; padding: 0; }
-                li { 
-                    margin: 10px 0; 
-                    padding: 10px; 
-                    border-radius: 5px; 
-                    background-color: rgba(245, 245, 245, 0.8); /* Semi-transparent background */
-                }
-                a { color: #0066cc; text-decoration: none; }
-                a:hover { text-decoration: underline; }
-                .empty { color: #666; font-style: italic; }
-                .content {
-                    position: relative;
-                    z-index: 1;
-                }
-                .file-item {
-                    display: flex;
-                    align-items: center;
-                    flex-wrap: wrap;
-                }
-                .file-type {
-                    background-color: #eaeaea;
-                    padding: 2px 6px;
-                    border-radius: 3px;
-                    margin-right: 10px;
-                    font-size: 12px;
-                    min-width: 80px;
-                    text-align: center;
-                }
-                .file-size {
-                    color: #666;
-                    margin-left: 5px;
-                }
-                /* Colored tags for different file types */
-                .pdf { background-color: #f7dada; }
-                .doc, .docx { background-color: #dae9f7; }
-                .jpg, .jpeg, .png, .gif { background-color: #e3f7da; }
-                .mp3, .wav { background-color: #f7f3da; }
-                .mp4, .mov { background-color: #f7daec; }
-                .zip, .rar { background-color: #daf7f5; }
-            </style>
-        </head>
-        <body>
-            <div class="content">
-                <h1>${greetingHeader}</h1>
-                <p>${greetingSubheader}</p>
-                ${files.length ? fileList : `<p class="empty">${greetingEmpty}</p>`}
-            </div>
-        </body>
-        </html>
-        `;
-        
-        res.send(html);
+        // Render the template with the data
+        res.render('index', {
+            files,
+            fileList,
+            backgroundImage,
+            userBackgroundImage,
+            backgroundBasename,
+            greetingHeader,
+            greetingSubheader,
+            greetingEmpty
+        });
     });
 });
 
@@ -248,6 +202,30 @@ app.get('/download/:filename', (req, res) => {
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
 // Add this route before the server.listen call
+
+// Handle image previews
+app.get('/preview/:filename', (req, res) => {
+    const filename = req.params.filename;
+    const filePath = path.join(__dirname, 'shared_files', filename);
+    
+    // Check if file exists and is within the shared_files directory
+    try {
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+            // Check if it's an image file
+            const ext = path.extname(filename).toLowerCase();
+            if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(ext)) {
+                res.sendFile(filePath);
+            } else {
+                res.status(400).send('Not an image file');
+            }
+        } else {
+            res.status(404).send('File not found');
+        }
+    } catch (err) {
+        console.error(`Error accessing file ${filename}: ${err.message}`);
+        res.status(500).send('Error accessing file');
+    }
+});
 
 // Serve favicon from assets
 app.get('/favicon.ico', (req, res) => {
