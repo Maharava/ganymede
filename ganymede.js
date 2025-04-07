@@ -6,6 +6,8 @@ const localtunnel = require('localtunnel');
 const basicAuth = require('express-basic-auth');
 const https = require('https');
 require('dotenv').config(); // Add dotenv support
+const archiver = require('archiver');
+const socketIo = require('socket.io');
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -131,7 +133,17 @@ app.get('/', (req, res) => {
             try {
                 const filePath = path.join(directoryPath, file);
                 const stats = fs.statSync(filePath);
-                if (stats.isFile()) {
+                
+                if (stats.isDirectory()) {
+                    // This is a folder
+                    fileList += `<li class="file-item folder-item">
+                        <span class="file-type folder">Folder</span>
+                        <span class="folder-icon">📁</span>
+                        <a href="/browse/${file}">${file}</a>
+                        <a href="/download-folder/${file}" class="download-folder-btn" 
+                           data-folder="${file}">Download Folder</a>
+                    </li>`;
+                } else if (stats.isFile()) {
                     const fileSize = (stats.size / 1024).toFixed(2) + ' KB';
                     const fileType = getFileType(file);
                     const ext = path.extname(file).toLowerCase();
@@ -180,10 +192,230 @@ app.get('/', (req, res) => {
     });
 });
 
+// Add a route to browse folders
+app.get('/browse/:folder', (req, res) => {
+    const folderName = req.params.folder;
+    const folderPath = path.join(__dirname, 'shared_files', folderName);
+    
+    // Check if folder exists and is within the shared_files directory
+    try {
+        if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
+            return res.status(404).send('Folder not found');
+        }
+        
+        const currentUser = req.auth.user;
+        const userBgPath = path.join(__dirname, 'assets', `background_${currentUser}.png`);
+        const defaultBgPath = path.join(__dirname, 'assets', 'background.png');
+        let backgroundImage = null;
+        let userBackgroundImage = null;
+        let backgroundBasename = '';
+
+        if (fs.existsSync(defaultBgPath)) {
+            backgroundImage = '/assets/background.png';
+            backgroundBasename = 'background.png';
+        }
+
+        if (fs.existsSync(userBgPath)) {
+            userBackgroundImage = `/assets/background_${currentUser}.png`;
+        }
+        
+        fs.readdir(folderPath, (err, files) => {
+            if (err) {
+                console.error(`Error reading directory: ${err.message}`);
+                return res.status(500).send('Error reading directory');
+            }
+            
+            // Generate HTML for file listing
+            let fileList = '<ul>';
+            // Add parent directory link
+            fileList += `<li class="file-item folder-item">
+                <span class="file-type folder">Parent Directory</span>
+                <span class="folder-icon">📁</span>
+                <a href="/">Back to root</a>
+            </li>`;
+            
+            files.forEach(file => {
+                try {
+                    const filePath = path.join(folderPath, file);
+                    const stats = fs.statSync(filePath);
+                    
+                    if (stats.isDirectory()) {
+                        // This is a subfolder
+                        fileList += `<li class="file-item folder-item">
+                            <span class="file-type folder">Folder</span>
+                            <span class="folder-icon">📁</span>
+                            <a href="/browse/${folderName}/${file}">${file}</a>
+                            <a href="/download-folder/${folderName}/${file}" class="download-folder-btn" 
+                               data-folder="${folderName}/${file}">Download Folder</a>
+                        </li>`;
+                    } else if (stats.isFile()) {
+                        const fileSize = (stats.size / 1024).toFixed(2) + ' KB';
+                        const fileType = getFileType(file);
+                        const ext = path.extname(file).toLowerCase();
+                        
+                        const isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(ext);
+                        let previewHtml = '';
+                        
+                        if (isImage) {
+                            previewHtml = `<img class="thumbnail" src="/preview/${folderName}/${file}" alt="${file}" />`;
+                        }
+                        
+                        fileList += `<li class="file-item">
+                            <span class="file-type ${ext.substring(1) || 'generic'}">${fileType}</span>
+                            ${previewHtml}
+                            <a href="/download/${folderName}/${file}">${file}</a>
+                            <span class="file-size">(${fileSize})</span>
+                        </li>`;
+                    }
+                } catch (err) {
+                    console.error(`Error processing file ${file}: ${err.message}`);
+                }
+            });
+            fileList += '</ul>';
+            
+            // Get custom greeting messages from .env or use defaults
+            let greetingHeader = process.env.FOLDER_GREETING_HEADER || "Browsing: {foldername}";
+            const greetingSubheader = process.env.FOLDER_GREETING_SUBHEADER || "Contents of this folder:";
+            const greetingEmpty = process.env.FOLDER_GREETING_EMPTY || "This folder is empty.";
+            
+            // Replace {foldername} placeholder with actual folder name
+            greetingHeader = greetingHeader.replace('{foldername}', folderName);
+            
+            // Render the template with the data
+            res.render('index', {
+                files,
+                fileList,
+                backgroundImage,
+                userBackgroundImage,
+                backgroundBasename,
+                greetingHeader,
+                greetingSubheader: files.length > 0 ? greetingSubheader : greetingEmpty,
+                greetingEmpty
+            });
+        });
+    } catch (err) {
+        console.error(`Error accessing folder ${folderName}: ${err.message}`);
+        res.status(500).send('Error accessing folder');
+    }
+});
+
+// Add a route to download folders as zip archives
+app.get('/download-folder/:folderPath(*)', (req, res) => {
+    const folderPath = req.params.folderPath;
+    const fullFolderPath = path.join(__dirname, 'shared_files', folderPath);
+    const socketId = req.query.socketId;
+    
+    // Check if the folder exists and is within the shared_files directory
+    try {
+        if (!fs.existsSync(fullFolderPath) || !fs.statSync(fullFolderPath).isDirectory()) {
+            return res.status(404).send('Folder not found');
+        }
+        
+        const folderName = path.basename(folderPath);
+        const zipFileName = `${folderName}.zip`;
+        
+        // Set response headers
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition', `attachment; filename="${zipFileName}"`);
+        
+        // Create zip archive
+        const archive = archiver('zip', {
+            zlib: { level: 5 } // Compression level
+        });
+        
+        // Pipe the archive to the response
+        archive.pipe(res);
+        
+        // Track progress
+        let fileCount = 0;
+        let totalFiles = 0;
+        
+        // Count total files first for progress tracking
+        const countFiles = (dir) => {
+            const entries = fs.readdirSync(dir);
+            entries.forEach(entry => {
+                const entryPath = path.join(dir, entry);
+                if (fs.statSync(entryPath).isDirectory()) {
+                    countFiles(entryPath);
+                } else {
+                    totalFiles++;
+                }
+            });
+        };
+        
+        try {
+            countFiles(fullFolderPath);
+            
+            // Emit initial progress
+            if (socketId && io.sockets.sockets.get(socketId)) {
+                io.to(socketId).emit('zipProgress', {
+                    folder: folderName,
+                    current: 0,
+                    total: totalFiles,
+                    percent: 0
+                });
+            }
+        } catch (err) {
+            console.error(`Error counting files: ${err.message}`);
+        }
+        
+        // Progress event
+        archive.on('entry', (entry) => {
+            fileCount++;
+            // Calculate percentage and ensure it doesn't exceed 100%
+            const percent = Math.min(Math.round((fileCount / totalFiles) * 100), 100);
+            
+            // Emit progress via Socket.IO
+            if (socketId && io.sockets.sockets.get(socketId)) {
+                io.to(socketId).emit('zipProgress', {
+                    folder: folderName,
+                    current: fileCount,
+                    total: totalFiles,
+                    percent: percent
+                });
+            }
+        });
+        
+        // Add folder contents to the archive
+        archive.directory(fullFolderPath, folderName);
+        
+        // Finalize the archive
+        archive.finalize();
+        
+        // Handle errors
+        archive.on('error', (err) => {
+            console.error(`Error creating zip archive: ${err.message}`);
+            
+            // Emit error
+            if (socketId && io.sockets.sockets.get(socketId)) {
+                io.to(socketId).emit('zipError', {
+                    folder: folderName,
+                    error: err.message
+                });
+            }
+            
+            res.end();
+        });
+        
+        // Handle archive completion
+        archive.on('end', () => {
+            // Emit completion
+            if (socketId && io.sockets.sockets.get(socketId)) {
+                io.to(socketId).emit('zipComplete', {
+                    folder: folderName
+                });
+            }
+        });
+    } catch (err) {
+        console.error(`Error accessing folder ${folderPath}: ${err.message}`);
+        res.status(500).send('Error accessing folder');
+    }
+});
+
 // Handle file downloads
-app.get('/download/:filename', (req, res) => {
-    const filename = req.params.filename;
-    const filePath = path.join(__dirname, 'shared_files', filename);
+app.get('/download/:folderPath(*)', (req, res) => {
+    const folderPath = req.params.folderPath;
+    const filePath = path.join(__dirname, 'shared_files', folderPath);
     
     // Check if file exists and is within the shared_files directory
     try {
@@ -193,7 +425,7 @@ app.get('/download/:filename', (req, res) => {
             res.status(404).send('File not found');
         }
     } catch (err) {
-        console.error(`Error accessing file ${filename}: ${err.message}`);
+        console.error(`Error accessing file ${folderPath}: ${err.message}`);
         res.status(500).send('Error accessing file');
     }
 });
@@ -204,15 +436,15 @@ app.use('/assets', express.static(path.join(__dirname, 'assets')));
 // Add this route before the server.listen call
 
 // Handle image previews
-app.get('/preview/:filename', (req, res) => {
-    const filename = req.params.filename;
-    const filePath = path.join(__dirname, 'shared_files', filename);
+app.get('/preview/:folderPath(*)', (req, res) => {
+    const folderPath = req.params.folderPath;
+    const filePath = path.join(__dirname, 'shared_files', folderPath);
     
     // Check if file exists and is within the shared_files directory
     try {
         if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
             // Check if it's an image file
-            const ext = path.extname(filename).toLowerCase();
+            const ext = path.extname(filePath).toLowerCase();
             if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(ext)) {
                 res.sendFile(filePath);
             } else {
@@ -222,7 +454,7 @@ app.get('/preview/:filename', (req, res) => {
             res.status(404).send('File not found');
         }
     } catch (err) {
-        console.error(`Error accessing file ${filename}: ${err.message}`);
+        console.error(`Error accessing file ${folderPath}: ${err.message}`);
         res.status(500).send('Error accessing file');
     }
 });
@@ -265,6 +497,16 @@ const server = app.listen(port, async () => {
             console.log('Server is still accessible locally at http://localhost:' + port);
         }
     })();
+});
+
+// Set up Socket.IO
+const io = socketIo(server);
+io.on('connection', (socket) => {
+    console.log('Client connected');
+    
+    socket.on('disconnect', () => {
+        console.log('Client disconnected');
+    });
 });
 
 // Handle graceful shutdown

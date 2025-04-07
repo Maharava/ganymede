@@ -9,6 +9,16 @@ your computer with others over the internet. It creates a secure, password-
 protected website that others can access to download files you place in a
 specific folder.
 
+FEATURES
+--------
+• File sharing with password protection
+• Folder browsing and downloading as zip archives
+• Download progress tracking for both files and folders
+• File search functionality
+• Thumbnails for image files
+• User-specific background images
+• Customizable greetings
+
 PREREQUISITES
 ------------
 1. Node.js (v14 or newer) - Download from https://nodejs.org/
@@ -26,7 +36,7 @@ to install Ganymede.
 3. Navigate into the cloned repository:
     cd ganymede
 
-3. Open a command prompt/terminal in this folder and run:
+4. Open a command prompt/terminal in this folder and run:
    npm install
 
    This will install all required dependencies.
@@ -42,7 +52,7 @@ Create or edit the .env file with a text editor and configure:
    USER_CREDENTIALS=username1:password1,username2:password2
 
    Example:
-   USER_CREDENTIALS=jimminy:cricket,boob:mcboobs
+   USER_CREDENTIALS=kyle:kaiyabi,reece:karo
 
 3. GREETING MESSAGES (optional):
    GREETING_HEADER=Hi, {username}! I'm Ganymede
@@ -61,18 +71,27 @@ folder:
     - Background images (1920x1080px recommended):
       - For all users: assets/background.png
       - For specific users: assets/background_username.png
-         (Example: assets/background_jiminy.png for user "jiminy")
+         (Example: assets/background_kyle.png for user "kyle")
 
     - Favicon (optional):
       - assets/ganymede.ico
 
 SHARING FILES
 ------------
-1. Open the "shared_files" folder in your Ganymede directory:
+1. Open the "shared_files" folder in your Ganymede directory
 
-2. Place any files you want to share in this folder.
+2. Place any files or folders you want to share in this folder
    - These will be available to anyone with login credentials
-   - There are no folder hierarchies - all files must be in this root folder
+   - You can create subfolders to organize your files
+   - Users can navigate through folders and download entire folders as zip archives
+
+FILE ORGANIZATION
+---------------
+Ganymede now supports folder hierarchies:
+- Create folders inside the "shared_files" directory to organize your content
+- Users can browse through these folders in the web interface
+- Folders can be downloaded as zip archives with a single click
+- Image files will show thumbnails for easy identification
 
 RUNNING THE SERVER
 -----------------
@@ -87,6 +106,11 @@ RUNNING THE SERVER
 3. IMPORTANT: The tunnel URL is how others will access your files.
    Make note of this URL to share with your users.
 
+4. If you see "Address already in use" errors:
+   - Either change the PORT in your .env file (e.g., PORT=3001)
+   - Or close any other applications using port 3000
+   - Or restart your computer to free up the port
+
 SHARING ACCESS WITH USERS
 ------------------------
 To allow users to access your file server:
@@ -99,6 +123,34 @@ To allow users to access your file server:
 2. When they access the URL, they will:
    - First be prompted for the tunnel password (your public IP)
    - Then be prompted for their Ganymede username/password
+
+USER INTERFACE FEATURES
+---------------------
+When users access Ganymede, they can:
+
+1. BROWSE FILES:
+   - Navigate through folders by clicking on folder names
+   - Return to parent folders with the "Back to root" or parent directory links
+
+2. SEARCH FILES:
+   - Use the search box at the top of the page to find files by name or type
+   - Search results update instantly as you type
+   - Matching text is highlighted in search results
+
+3. DOWNLOAD FILES:
+   - Single files: Click on a file name to download it
+   - Multiple files: Use the "Download All Files" button
+   - Entire folders: Click the "Download Folder" button next to a folder
+
+4. TRACK DOWNLOADS:
+   - A progress overlay appears for all downloads
+   - Shows real-time progress with percentage and file size information
+   - Progress bars indicate download status
+   - Download completion is confirmed with a notification
+
+5. SWITCH BACKGROUNDS:
+   - If user-specific backgrounds are configured, users can toggle between
+     default and personal backgrounds using the icon in the top-right corner
 
 SECURITY NOTE
 ------------
@@ -116,7 +168,10 @@ TROUBLESHOOTING
 
 2. "Address already in use" errors:
    - Change the PORT in your .env file
-   - Make sure no other services are using that port
+   - Close any applications that might be using port 3000
+   - Run this command to find the process using the port:
+     Windows: netstat -ano | findstr :3000
+     Then kill that process: taskkill /F /PID <PID>
 
 3. Tunnel connection issues:
    - Restart the server
@@ -127,3 +182,25 @@ TROUBLESHOOTING
    - Make sure they're in the "shared_files" directory
    - Reload the page
    - File names with special characters might cause issues
+
+5. Download progress not showing:
+   - Make sure JavaScript is enabled in the browser
+   - Try a different browser (Chrome or Firefox recommended)
+
+6. Folders not downloading:
+   - Check if the archiver module is installed (npm install archiver)
+   - Make sure the folder doesn't contain special characters in the name
+
+TECHNICAL INFORMATION
+-------------------
+Ganymede uses the following technologies:
+- Node.js and Express for the web server
+- Socket.IO for real-time download progress
+- Archiver for creating zip archives of folders
+- EJS for HTML templating
+- LocalTunnel for internet accessibility
+
+For developers who want to modify Ganymede, the main files are:
+- ganymede.js: The main server file
+- views/index.ejs: The front-end template
+- .env: Configuration file

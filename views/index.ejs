@@ -125,6 +125,112 @@
         .download-all-btn:hover {
             background-color: #0055aa;
         }
+
+        /* Folder item styles */
+        .folder-item {
+            background-color: rgba(240, 240, 255, 0.8);
+        }
+        .folder-icon {
+            margin-right: 10px;
+            font-size: 20px;
+        }
+        .download-folder-btn {
+            margin-left: 10px;
+            background-color: #0066cc;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            text-decoration: none;
+        }
+        .download-folder-btn:hover {
+            background-color: #0055aa;
+            text-decoration: none;
+        }
+
+        /* Progress bar styles */
+        .progress-container {
+            width: 100%;
+            margin: 10px 0;
+            display: none;
+            overflow: hidden; /* Add this to prevent overflow */
+            position: relative; /* Add this for proper containment */
+            border-radius: 5px; /* Match the border-radius of the progress bar */
+        }
+        .progress-bar {
+            width: 0%;
+            height: 10px;
+            background-color: #4CAF50;
+            border-radius: 5px;
+            transition: width 0.3s;
+        }
+        .progress-text {
+            font-size: 12px;
+            color: #555;
+            margin-top: 3px;
+        }
+        #progress-overlay {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            max-width: 300px;
+            background-color: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            border-radius: 5px;
+            padding: 15px;
+            z-index: 1000;
+            display: none;
+        }
+        .progress-item {
+            margin-bottom: 15px;
+        }
+        .progress-close {
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .search-container {
+            margin-bottom: 15px;
+            position: relative;
+            display: flex;
+        }
+        .search-input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .search-clear-btn {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            font-size: 16px;
+            color: #999;
+            cursor: pointer;
+            display: none;
+        }
+        .search-clear-btn:hover {
+            color: #333;
+        }
+        .file-item.hidden {
+            display: none;
+        }
+        .search-highlight {
+            background-color: yellow;
+            font-weight: bold;
+        }
+        .no-results {
+            font-style: italic;
+            color: #666;
+            display: none;
+            padding: 10px;
+        }
     </style>
 </head>
 <body>
@@ -132,6 +238,10 @@
     <button id="bg-toggle" title="Switch to personal background">👤</button>
     <% } %>
     <div class="content">
+        <div class="search-container">
+            <input type="text" id="file-search" placeholder="Search files..." class="search-input">
+            <button id="search-clear" class="search-clear-btn">×</button>
+        </div>
         <h1><%= greetingHeader %></h1>
         <p><%= greetingSubheader %></p>
         <% if (files.length) { %>
@@ -143,6 +253,7 @@
             <p class="empty"><%= greetingEmpty %></p>
         <% } %>
     </div>
+    <div class="no-results">No files match your search.</div>
     
     <script>
         // Background toggle functionality
@@ -230,7 +341,321 @@
                     downloadNextFile(0);
                 });
             }
+
+            // Search functionality
+            const searchInput = document.getElementById('file-search');
+            const searchClearBtn = document.getElementById('search-clear');
+            const noResults = document.querySelector('.no-results');
+            
+            if (searchInput && searchClearBtn) {
+                searchInput.addEventListener('input', performSearch);
+                searchClearBtn.addEventListener('click', clearSearch);
+            }
+            
+            function performSearch() {
+                const searchTerm = searchInput.value.toLowerCase().trim();
+                const fileItems = document.querySelectorAll('.file-item');
+                let matchCount = 0;
+                
+                // Show/hide clear button
+                if (searchTerm) {
+                    searchClearBtn.style.display = 'block';
+                } else {
+                    searchClearBtn.style.display = 'none';
+                }
+                
+                fileItems.forEach(item => {
+                    const fileName = item.querySelector('a').textContent.toLowerCase();
+                    const fileType = item.querySelector('.file-type').textContent.toLowerCase();
+                    
+                    if (searchTerm === '' || fileName.includes(searchTerm) || fileType.includes(searchTerm)) {
+                        item.classList.remove('hidden');
+                        
+                        // Reset any previous highlights
+                        const link = item.querySelector('a');
+                        link.innerHTML = link.textContent;
+                        
+                        // If search term is present, highlight it
+                        if (searchTerm) {
+                            const regex = new RegExp(`(${escapeRegExp(searchTerm)})`, 'gi');
+                            link.innerHTML = link.textContent.replace(regex, '<span class="search-highlight">$1</span>');
+                        }
+                        
+                        matchCount++;
+                    } else {
+                        item.classList.add('hidden');
+                    }
+                });
+                
+                // Show/hide no results message
+                if (matchCount === 0 && searchTerm) {
+                    noResults.style.display = 'block';
+                } else {
+                    noResults.style.display = 'none';
+                }
+            }
+            
+            function clearSearch() {
+                searchInput.value = '';
+                searchClearBtn.style.display = 'none';
+                performSearch();
+                searchInput.focus();
+            }
+            
+            // Helper function to escape special characters in regex
+            function escapeRegExp(string) {
+                return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
         });
+    </script>
+
+    <div id="progress-overlay">
+        <span class="progress-close" onclick="document.getElementById('progress-overlay').style.display='none'">×</span>
+        <h4>Downloads in progress</h4>
+        <div id="progress-items"></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // Socket.IO setup
+        const socket = io();
+        let socketId = '';
+
+        socket.on('connect', () => {
+            socketId = socket.id;
+        });
+
+        // Download progress handling
+        socket.on('zipProgress', (data) => {
+            updateProgressBar(data.folder, data.current, data.total, data.percent);
+        });
+
+        socket.on('zipError', (data) => {
+            showError(data.folder, data.error);
+        });
+
+        socket.on('zipComplete', (data) => {
+            completeProgress(data.folder);
+        });
+
+        // Function to create or update progress bars
+        function updateProgressBar(folder, current, total, percent) {
+            const progressOverlay = document.getElementById('progress-overlay');
+            progressOverlay.style.display = 'block';
+            
+            const progressItems = document.getElementById('progress-items');
+            
+            // Check if this folder already has a progress bar
+            let progressItem = document.getElementById(`progress-${folder}`);
+            
+            if (!progressItem) {
+                // Create new progress item
+                progressItem = document.createElement('div');
+                progressItem.id = `progress-${folder}`;
+                progressItem.className = 'progress-item';
+                progressItem.innerHTML = `
+                    <div>${folder}.zip</div>
+                    <div class="progress-container">
+                        <div class="progress-bar" id="progress-bar-${folder}"></div>
+                    </div>
+                    <div class="progress-text" id="progress-text-${folder}">Preparing...</div>
+                `;
+                progressItems.appendChild(progressItem);
+            }
+            
+            // Show progress container
+            const progressContainer = progressItem.querySelector('.progress-container');
+            progressContainer.style.display = 'block';
+            
+            // Ensure percent doesn't exceed 100%
+            const safePercent = Math.min(percent, 100);
+            
+            // Update progress bar
+            const progressBar = document.getElementById(`progress-bar-${folder}`);
+            progressBar.style.width = `${safePercent}%`;
+            
+            // Update text
+            const progressText = document.getElementById(`progress-text-${folder}`);
+            progressText.textContent = `${current} of ${total} files (${percent}%)`;
+        }
+
+        function showError(folder, error) {
+            const progressText = document.getElementById(`progress-text-${folder}`);
+            if (progressText) {
+                progressText.textContent = `Error: ${error}`;
+                progressText.style.color = 'red';
+            }
+        }
+
+        function completeProgress(folder) {
+            const progressText = document.getElementById(`progress-text-${folder}`);
+            if (progressText) {
+                progressText.textContent = `Download complete!`;
+                progressText.style.color = 'green';
+                
+                // Remove the progress item after a delay
+                setTimeout(() => {
+                    const progressItem = document.getElementById(`progress-${folder}`);
+                    if (progressItem) {
+                        progressItem.remove();
+                        
+                        // Hide overlay if no more progress items
+                        const progressItems = document.getElementById('progress-items');
+                        if (progressItems.children.length === 0) {
+                            document.getElementById('progress-overlay').style.display = 'none';
+                        }
+                    }
+                }, 3000);
+            }
+        }
+
+        // Add click handler for folder download buttons
+        document.addEventListener('DOMContentLoaded', function() {
+            const downloadFolderBtns = document.querySelectorAll('.download-folder-btn');
+            downloadFolderBtns.forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    const folder = this.dataset.folder;
+                    // Add socket ID to the URL
+                    this.href = `/download-folder/${folder}?socketId=${socketId}`;
+                });
+            });
+            
+            // Add single file download progress
+            const fileLinks = document.querySelectorAll('a[href^="/download/"]');
+            fileLinks.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    const filename = this.textContent;
+                    trackFileDownloadProgress(this.href, filename);
+                    e.preventDefault();
+                });
+            });
+        });
+
+        // Function to track file download progress
+        function trackFileDownloadProgress(url, filename) {
+            const progressOverlay = document.getElementById('progress-overlay');
+            progressOverlay.style.display = 'block';
+            
+            const progressItems = document.getElementById('progress-items');
+            
+            // Create progress item
+            const progressItem = document.createElement('div');
+            progressItem.id = `progress-${filename}`;
+            progressItem.className = 'progress-item';
+            progressItem.innerHTML = `
+                <div>${filename}</div>
+                <div class="progress-container" style="display: block;">
+                    <div class="progress-bar" id="progress-bar-${filename}"></div>
+                </div>
+                <div class="progress-text" id="progress-text-${filename}">Starting download...</div>
+            `;
+            progressItems.appendChild(progressItem);
+            
+            // Use fetch with streams to track progress
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    
+                    const contentLength = response.headers.get('Content-Length');
+                    const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+                    let receivedBytes = 0;
+                    
+                    const progressBar = document.getElementById(`progress-bar-${filename}`);
+                    const progressText = document.getElementById(`progress-text-${filename}`);
+                    
+                    // Create a new reader from the response body stream
+                    const reader = response.body.getReader();
+                    
+                    // Create a new stream from the reader that we can use to track progress
+                    const stream = new ReadableStream({
+                        start(controller) {
+                            function push() {
+                                reader.read().then(({ done, value }) => {
+                                    if (done) {
+                                        controller.close();
+                                        return;
+                                    }
+                                    
+                                    receivedBytes += value.length;
+                                    
+                                    if (totalBytes) {
+                                        const percent = Math.round((receivedBytes / totalBytes) * 100);
+                                        progressBar.style.width = `${percent}%`;
+                                        progressText.textContent = `${formatBytes(receivedBytes)} of ${formatBytes(totalBytes)} (${percent}%)`;
+                                    } else {
+                                        progressText.textContent = `${formatBytes(receivedBytes)} downloaded`;
+                                    }
+                                    
+                                    controller.enqueue(value);
+                                    push();
+                                }).catch(error => {
+                                    console.error('Error during file download:', error);
+                                    progressText.textContent = `Error: ${error.message}`;
+                                    progressText.style.color = 'red';
+                                    controller.error(error);
+                                });
+                            }
+                            
+                            push();
+                        }
+                    });
+                    
+                    return new Response(stream, { headers: response.headers });
+                })
+                .then(response => response.blob())
+                .then(blob => {
+                    // Create a download link
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    
+                    // Update progress
+                    const progressText = document.getElementById(`progress-text-${filename}`);
+                    progressText.textContent = 'Download complete!';
+                    progressText.style.color = 'green';
+                    
+                    // Remove progress item after delay
+                    setTimeout(() => {
+                        const progressItem = document.getElementById(`progress-${filename}`);
+                        if (progressItem) {
+                            progressItem.remove();
+                            
+                            // Hide overlay if no more progress items
+                            if (progressItems.children.length === 0) {
+                                progressOverlay.style.display = 'none';
+                            }
+                        }
+                    }, 3000);
+                })
+                .catch(error => {
+                    console.error('Download failed:', error);
+                    const progressText = document.getElementById(`progress-text-${filename}`);
+                    if (progressText) {
+                        progressText.textContent = `Error: ${error.message}`;
+                        progressText.style.color = 'red';
+                    }
+                });
+        }
+
+        // Helper function to format bytes
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
     </script>
 </body>
 </html>
