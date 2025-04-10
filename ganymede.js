@@ -8,8 +8,47 @@ const https = require('https');
 require('dotenv').config(); // Add dotenv support
 const archiver = require('archiver');
 const socketIo = require('socket.io');
+const rateLimit = require('express-rate-limit'); // Add rateLimit
+const multer = require('multer'); // Add multer
+const compression = require('compression'); // Add compression
+
 const app = express();
 const port = process.env.PORT || 3000;
+
+// Add this near the top after creating the Express app
+app.use(express.json()); // For parsing application/json requests
+
+// Create limiters
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 attempts per window
+  message: 'Too many login attempts, please try again later'
+});
+
+const downloadLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30, // 30 downloads per minute
+  message: 'Download limit exceeded, please try again later'
+});
+
+// Apply to specific routes
+app.use('/download', downloadLimiter);
+
+// Add compression middleware (before routes)
+app.use(compression({
+  // Compression filter - only compress text-based files
+  filter: (req, res) => {
+    if (req.path.startsWith('/download/')) {
+      // Check file extension
+      const ext = path.extname(req.path).toLowerCase();
+      // Only compress text files, HTML, CSS, JS, JSON, etc.
+      return ['.txt', '.html', '.css', '.js', '.json', '.xml', '.md'].includes(ext);
+    }
+    // Default compression behavior for other routes
+    return compression.filter(req, res);
+  },
+  level: 6 // Compression level (0-9, higher = more compression but slower)
+}));
 
 // Set up EJS as the view engine
 app.set('view engine', 'ejs');
@@ -50,6 +89,25 @@ app.use(basicAuth({
     realm: 'Simple File Sharing'
 }));
 
+// Add this function to sanitize file paths
+function sanitizePath(userPath) {
+  // Remove any null bytes
+  let sanitized = userPath.replace(/\0/g, '');
+  
+  // Normalize path to remove ../ sequences
+  const normalized = path.normalize(sanitized).replace(/^(\.\.(\/|\\|$))+/, '');
+  
+  // Ensure path is within shared_files directory
+  const fullPath = path.join(__dirname, 'shared_files', normalized);
+  const sharedDir = path.join(__dirname, 'shared_files');
+  
+  if (!fullPath.startsWith(sharedDir)) {
+    return null; // Invalid path, outside shared directory
+  }
+  
+  return normalized;
+}
+
 // Add this function before your route definitions
 function getFileType(filename) {
     const ext = path.extname(filename).toLowerCase();
@@ -76,9 +134,39 @@ function getFileType(filename) {
     return fileTypes[ext] || 'File';
 }
 
-// Serve the file browser page
+// Configure storage
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    // Get current directory from query or default to root
+    const uploadDir = req.query.dir ? 
+      path.join(__dirname, 'shared_files', sanitizePath(req.query.dir)) : 
+      path.join(__dirname, 'shared_files');
+    
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    // Keep original filename but sanitize it
+    cb(null, file.originalname.replace(/[^\w\s.-]/g, ''));
+  }
+});
+
+// Set up upload middleware with limits
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Optional: filter file types
+    cb(null, true);
+  }
+});
+
+// Modify the root route to support pagination
 app.get('/', (req, res) => {
     const directoryPath = path.join(__dirname, 'shared_files');
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50; // Files per page
     
     // Get the current authenticated username
     const currentUser = req.auth.user;
@@ -127,9 +215,35 @@ app.get('/', (req, res) => {
             return res.status(500).send('Error reading directory');
         }
         
-        // Generate HTML for file listing
+        // Calculate pagination
+        const totalFiles = files.length;
+        const totalPages = Math.ceil(totalFiles / limit);
+        const startIndex = (page - 1) * limit;
+        const endIndex = Math.min(startIndex + limit, totalFiles);
+        const paginatedFiles = files.slice(startIndex, endIndex);
+        
+        // Generate pagination controls
+        let paginationHtml = '<div class="pagination">';
+        if (page > 1) {
+            paginationHtml += `<a href="?page=${page - 1}" class="page-link">Previous</a>`;
+        }
+        
+        for (let i = 1; i <= totalPages; i++) {
+            if (i === page) {
+                paginationHtml += `<span class="page-current">${i}</span>`;
+            } else {
+                paginationHtml += `<a href="?page=${i}" class="page-link">${i}</a>`;
+            }
+        }
+        
+        if (page < totalPages) {
+            paginationHtml += `<a href="?page=${page + 1}" class="page-link">Next</a>`;
+        }
+        paginationHtml += '</div>';
+        
+        // Generate HTML for file listing, but use paginatedFiles instead of files
         let fileList = '<ul>';
-        files.forEach(file => {
+        paginatedFiles.forEach(file => {
             try {
                 const filePath = path.join(directoryPath, file);
                 const stats = fs.statSync(filePath);
@@ -180,8 +294,11 @@ app.get('/', (req, res) => {
         
         // Render the template with the data
         res.render('index', {
-            files,
+            files: paginatedFiles,
             fileList,
+            pagination: paginationHtml,
+            currentPage: page,
+            totalPages: totalPages,
             backgroundImage,
             userBackgroundImage,
             backgroundBasename,
@@ -412,22 +529,69 @@ app.get('/download-folder/:folderPath(*)', (req, res) => {
     }
 });
 
-// Handle file downloads
+// Replace the simple download route with a streaming version
 app.get('/download/:folderPath(*)', (req, res) => {
-    const folderPath = req.params.folderPath;
-    const filePath = path.join(__dirname, 'shared_files', folderPath);
-    
-    // Check if file exists and is within the shared_files directory
-    try {
-        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-            res.download(filePath);
-        } else {
-            res.status(404).send('File not found');
-        }
-    } catch (err) {
-        console.error(`Error accessing file ${folderPath}: ${err.message}`);
-        res.status(500).send('Error accessing file');
+  const folderPath = sanitizePath(req.params.folderPath);
+  if (!folderPath) return res.status(403).send('Invalid path');
+  
+  const filePath = path.join(__dirname, 'shared_files', folderPath);
+  
+  try {
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      const stat = fs.statSync(filePath);
+      const fileSize = stat.size;
+      const fileName = path.basename(filePath);
+      
+      // Handle range requests (resumable downloads)
+      const range = req.headers.range;
+      if (range) {
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunkSize = (end - start) + 1;
+        
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunkSize,
+          'Content-Type': 'application/octet-stream',
+          'Content-Disposition': `attachment; filename="${fileName}"`
+        });
+        
+        const stream = fs.createReadStream(filePath, { start, end });
+        stream.pipe(res);
+      } else {
+        // Normal download (entire file)
+        res.writeHead(200, {
+          'Content-Length': fileSize,
+          'Content-Type': 'application/octet-stream',
+          'Content-Disposition': `attachment; filename="${fileName}"`
+        });
+        
+        const stream = fs.createReadStream(filePath);
+        stream.pipe(res);
+      }
+    } else {
+      res.status(404).send('File not found');
     }
+  } catch (err) {
+    console.error(`Error streaming file ${folderPath}: ${err.message}`);
+    res.status(500).send('Error accessing file');
+  }
+});
+
+// Add upload route
+app.post('/upload', upload.array('files', 10), (req, res) => {
+  // req.files is array of uploaded files
+  // req.body will contain text fields if any
+  
+  res.json({
+    success: true,
+    files: req.files.map(f => ({
+      filename: f.originalname,
+      size: f.size
+    }))
+  });
 });
 
 // Also add a route to serve the assets folder
@@ -466,6 +630,116 @@ app.get('/favicon.ico', (req, res) => {
         res.sendFile(faviconPath);
     } else {
         res.status(204).end(); // No content if favicon doesn't exist
+    }
+});
+
+// Add these routes before the server.listen
+
+// Route for wiping the shared_files directory
+app.post('/wipe-folder', (req, res) => {
+    const sharedDir = path.join(__dirname, 'shared_files');
+    
+    try {
+        // Check if directory exists first
+        if (fs.existsSync(sharedDir)) {
+            // Read all items in the directory
+            const items = fs.readdirSync(sharedDir);
+            
+            // Delete each item
+            for (const item of items) {
+                const itemPath = path.join(sharedDir, item);
+                
+                // If directory, delete recursively
+                if (fs.statSync(itemPath).isDirectory()) {
+                    fs.rmdirSync(itemPath, { recursive: true });
+                } else {
+                    // If file, delete directly
+                    fs.unlinkSync(itemPath);
+                }
+            }
+            
+            res.json({ success: true, message: 'Folder wiped successfully' });
+        } else {
+            // Directory doesn't exist, create it
+            fs.mkdirSync(sharedDir, { recursive: true });
+            res.json({ success: true, message: 'Folder created' });
+        }
+    } catch (err) {
+        console.error(`Error wiping folder: ${err.message}`);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// Route to prepare an export of all files as a zip
+app.get('/prepare-export', (req, res) => {
+    const sharedDir = path.join(__dirname, 'shared_files');
+    const exportDir = path.join(__dirname, 'exports');
+    const exportFile = path.join(exportDir, 'ganymede-export.zip');
+    
+    try {
+        // Ensure export directory exists
+        if (!fs.existsSync(exportDir)) {
+            fs.mkdirSync(exportDir, { recursive: true });
+        } else {
+            // Remove old export if it exists
+            if (fs.existsSync(exportFile)) {
+                fs.unlinkSync(exportFile);
+            }
+        }
+        
+        // Create a write stream to the export file
+        const output = fs.createWriteStream(exportFile);
+        const archive = archiver('zip', {
+            zlib: { level: 5 } // Compression level
+        });
+        
+        // Listen for all archive data to be written
+        output.on('close', function() {
+            console.log('Export created successfully, ' + archive.pointer() + ' total bytes');
+            res.status(200).json({ success: true });
+        });
+        
+        // Handle archive warnings
+        archive.on('warning', function(err) {
+            if (err.code === 'ENOENT') {
+                console.warn('Archive warning:', err);
+            } else {
+                throw err;
+            }
+        });
+        
+        // Handle archive errors
+        archive.on('error', function(err) {
+            throw err;
+        });
+        
+        // Pipe archive data to the file
+        archive.pipe(output);
+        
+        // Add the shared_files directory contents to the archive
+        archive.directory(sharedDir, false);
+        
+        // Finalize the archive
+        archive.finalize();
+    } catch (err) {
+        console.error(`Error preparing export: ${err.message}`);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// Route to download the prepared export zip
+app.get('/download-export', (req, res) => {
+    const exportFile = path.join(__dirname, 'exports', 'ganymede-export.zip');
+    
+    try {
+        if (fs.existsSync(exportFile)) {
+            res.download(exportFile, 'ganymede-export.zip');
+        } else {
+            res.status(404).send('Export not found');
+        }
+    } catch (err) {
+        console.error(`Error downloading export: ${err.message}`);
+        res.status(500).send('Error accessing export');
     }
 });
 

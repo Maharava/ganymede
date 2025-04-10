@@ -231,6 +231,91 @@
             display: none;
             padding: 10px;
         }
+        .upload-container {
+            margin: 15px 0;
+        }
+        #upload-form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        #file-input {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 8px;
+        }
+        #upload-btn {
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            font-size: 14px;
+        }
+        #upload-btn:hover {
+            background-color: #0055aa;
+        }
+        .upload-progress-container {
+            margin-top: 10px;
+            display: none;
+        }
+        .upload-progress-bar {
+            width: 0%;
+            height: 10px;
+            background-color: #4CAF50;
+            border-radius: 5px;
+            transition: width 0.3s;
+        }
+        .upload-progress-text {
+            font-size: 12px;
+            color: #555;
+            margin-top: 3px;
+        }
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .management-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        #wipe-btn {
+            background-color: #f44336;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            font-size: 14px;
+        }
+
+        #wipe-btn:hover {
+            background-color: #d32f2f;
+        }
+
+        #export-btn {
+            background-color: #ff9800;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            font-size: 14px;
+        }
+
+        #export-btn:hover {
+            background-color: #f57c00;
+        }
     </style>
 </head>
 <body>
@@ -244,6 +329,22 @@
         </div>
         <h1><%= greetingHeader %></h1>
         <p><%= greetingSubheader %></p>
+        <div class="upload-container">
+            <form id="upload-form" enctype="multipart/form-data">
+                <div class="button-group">
+                    <input type="file" id="file-input" name="files" multiple>
+                    <button type="submit" id="upload-btn">Upload Files</button>
+                </div>
+                <div class="management-buttons">
+                    <button type="button" id="wipe-btn">Wipe Folder</button>
+                    <button type="button" id="export-btn">Export All Files</button>
+                </div>
+            </form>
+            <div class="upload-progress-container" style="display: none;">
+                <div class="upload-progress-bar"></div>
+                <div class="upload-progress-text">0%</div>
+            </div>
+        </div>
         <% if (files.length) { %>
             <div class="action-buttons">
                 <button id="download-all-btn" class="download-all-btn">Download All Files</button>
@@ -251,6 +352,9 @@
             <%- fileList %>
         <% } else { %>
             <p class="empty"><%= greetingEmpty %></p>
+        <% } %>
+        <% if (totalPages > 1) { %>
+            <%- pagination %>
         <% } %>
     </div>
     <div class="no-results">No files match your search.</div>
@@ -271,7 +375,7 @@
                         if (getComputedStyle(body).backgroundImage.includes(bgBasename) || 
                             body.style.backgroundImage.includes(bgBasename)) {
                             // Switch to user background
-                            body.style.backgroundImage = 'url("' + userBg + '")';
+                            body.style.backgroundImage = 'url("' + encodeURI(userBg) + '")'; // Needs sanitization
                             bgToggle.innerHTML = '🏠';
                             bgToggle.title = 'Switch to default background';
                         } else {
@@ -342,6 +446,73 @@
                 });
             }
 
+            // Wipe folder functionality
+            const wipeBtn = document.getElementById('wipe-btn');
+            if (wipeBtn) {
+                wipeBtn.addEventListener('click', function() {
+                    if (confirm('⚠️ WARNING: Are you sure you want to delete ALL files in the shared folder? This cannot be undone.')) {
+                        const originalText = wipeBtn.textContent;
+                        wipeBtn.textContent = 'Wiping...';
+                        wipeBtn.disabled = true;
+                        
+                        fetch('/wipe-folder', {
+                            method: 'POST'
+                        })
+                        .then(response => {
+                            if (response.ok) {
+                                return response.json();
+                            }
+                            throw new Error('Failed to wipe folder');
+                        })
+                        .then(data => {
+                            alert('Folder wiped successfully');
+                            window.location.reload();
+                        })
+                        .catch(error => {
+                            alert('Error: ' + error.message);
+                            wipeBtn.textContent = originalText;
+                            wipeBtn.disabled = false;
+                        });
+                    }
+                });
+            }
+
+            // Export functionality
+            const exportBtn = document.getElementById('export-btn');
+            if (exportBtn) {
+                exportBtn.addEventListener('click', function() {
+                    const originalText = exportBtn.textContent;
+                    exportBtn.textContent = 'Preparing...';
+                    exportBtn.disabled = true;
+                    
+                    // Request the server to create a zip of all files
+                    fetch('/prepare-export')
+                        .then(response => {
+                            if (response.ok) {
+                                return response.json();
+                            }
+                            throw new Error('Failed to prepare export');
+                        })
+                        .then(data => {
+                            exportBtn.textContent = originalText;
+                            exportBtn.disabled = false;
+                            
+                            // Create an invisible link and click it to start the download
+                            const link = document.createElement('a');
+                            link.href = '/download-export';
+                            link.download = 'ganymede-export.zip';
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                        })
+                        .catch(error => {
+                            exportBtn.textContent = originalText;
+                            exportBtn.disabled = false;
+                            alert('Error: ' + error.message);
+                        });
+                });
+            }
+
             // Search functionality
             const searchInput = document.getElementById('file-search');
             const searchClearBtn = document.getElementById('search-clear');
@@ -406,6 +577,54 @@
             function escapeRegExp(string) {
                 return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             }
+
+            // Upload functionality
+            document.getElementById('upload-form').addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const files = document.getElementById('file-input').files;
+                if (files.length === 0) return;
+                
+                const formData = new FormData();
+                for (let i = 0; i < files.length; i++) {
+                    formData.append('files', files[i]);
+                }
+                
+                const xhr = new XMLHttpRequest();
+                
+                // Show progress container
+                const progressContainer = document.querySelector('.upload-progress-container');
+                const progressBar = document.querySelector('.upload-progress-bar');
+                const progressText = document.querySelector('.upload-progress-text');
+                progressContainer.style.display = 'block';
+                
+                xhr.upload.addEventListener('progress', function(e) {
+                    if (e.lengthComputable) {
+                        const percent = Math.round((e.loaded / e.total) * 100);
+                        progressBar.style.width = percent + '%';
+                        progressText.textContent = percent + '%';
+                    }
+                });
+                
+                xhr.addEventListener('load', function() {
+                    if (xhr.status === 200) {
+                        // Success - reload page to show new files
+                        setTimeout(() => window.location.reload(), 1000);
+                    } else {
+                        progressText.textContent = 'Upload failed: ' + xhr.statusText;
+                        progressText.style.color = 'red';
+                    }
+                });
+
+                // Missing error event handler for network failures
+                xhr.addEventListener('error', function(e) {
+                    progressText.textContent = 'Network error occurred during upload';
+                    progressText.style.color = 'red';
+                });
+                
+                xhr.open('POST', '/upload');
+                xhr.send(formData);
+            });
         });
     </script>
 
@@ -472,6 +691,7 @@
             
             // Update progress bar
             const progressBar = document.getElementById(`progress-bar-${folder}`);
+            if (!progressBar) return; // Should add this check
             progressBar.style.width = `${safePercent}%`;
             
             // Update text
@@ -540,14 +760,14 @@
             
             // Create progress item
             const progressItem = document.createElement('div');
-            progressItem.id = `progress-${filename}`;
+            progressItem.id = `progress-${encodeURIComponent(filename)}`; // Problematic if filenames contain spaces or special chars
             progressItem.className = 'progress-item';
             progressItem.innerHTML = `
                 <div>${filename}</div>
                 <div class="progress-container" style="display: block;">
-                    <div class="progress-bar" id="progress-bar-${filename}"></div>
+                    <div class="progress-bar" id="progress-bar-${encodeURIComponent(filename)}"></div>
                 </div>
-                <div class="progress-text" id="progress-text-${filename}">Starting download...</div>
+                <div class="progress-text" id="progress-text-${encodeURIComponent(filename)}">Starting download...</div>
             `;
             progressItems.appendChild(progressItem);
             
@@ -562,8 +782,8 @@
                     const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
                     let receivedBytes = 0;
                     
-                    const progressBar = document.getElementById(`progress-bar-${filename}`);
-                    const progressText = document.getElementById(`progress-text-${filename}`);
+                    const progressBar = document.getElementById(`progress-bar-${encodeURIComponent(filename)}`);
+                    const progressText = document.getElementById(`progress-text-${encodeURIComponent(filename)}`);
                     
                     // Create a new reader from the response body stream
                     const reader = response.body.getReader();
@@ -617,13 +837,13 @@
                     window.URL.revokeObjectURL(url);
                     
                     // Update progress
-                    const progressText = document.getElementById(`progress-text-${filename}`);
+                    const progressText = document.getElementById(`progress-text-${encodeURIComponent(filename)}`);
                     progressText.textContent = 'Download complete!';
                     progressText.style.color = 'green';
                     
                     // Remove progress item after delay
                     setTimeout(() => {
-                        const progressItem = document.getElementById(`progress-${filename}`);
+                        const progressItem = document.getElementById(`progress-${encodeURIComponent(filename)}`);
                         if (progressItem) {
                             progressItem.remove();
                             
@@ -636,7 +856,7 @@
                 })
                 .catch(error => {
                     console.error('Download failed:', error);
-                    const progressText = document.getElementById(`progress-text-${filename}`);
+                    const progressText = document.getElementById(`progress-text-${encodeURIComponent(filename)}`);
                     if (progressText) {
                         progressText.textContent = `Error: ${error.message}`;
                         progressText.style.color = 'red';
